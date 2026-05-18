@@ -1,3 +1,4 @@
 <Solution>
-  <Project Path="SecureAuth.csproj" />
+  <Project Path="src/SecureAuth/SecureAuth.csproj" />
+  <Project Path="test/SecureAuth.Tests/SecureAuth.Tests.csproj" />
 </Solution>
