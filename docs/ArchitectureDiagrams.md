@@ -1,63 +1,44 @@
 # SecureAuth: діаграми та карта файлів
 
-Цей документ пояснює проєкт без потреби читати весь код.
-Якщо коротко: це невеликий ASP.NET Core API для двоетапної авторизації.
+Цей документ дає швидкий огляд проєкту без потреби читати весь код. SecureAuth - це невеликий ASP.NET Core API для двоетапної автентифікації.
 
-## 1. Що робить програма
-
-Клієнт не отримує "повний" токен одразу.
-Спочатку він:
-
-1. логіниться через `POST /auth/login`
-2. отримує короткоживучий `simpleToken`
-3. міняє його через `POST /auth/token`
-4. отримує довгоживучий `fullToken`
-5. може завершити сесію через `POST /auth/logout`
-
-Усі запити на `/auth/*` мають містити:
-
-- `apiSignature`
-- `requestDate`
-
-Сервер спочатку перевіряє підпис і "свіжість" запиту, і лише потім пускає його в бізнес-логіку.
-
-## 2. Головна діаграма роботи
+## Основний сценарій
 
 ```mermaid
 flowchart TD
-    A["Клієнт"] --> B["POST /auth/login"]
-    B --> C["ValidateApiSignatureFilter"]
-    C -->|ok| D["AuthController.Login"]
-    C -->|bad signature / stale request| X["401 error"]
-    D --> E["AuthService.Login"]
-    E --> F["InMemoryUserStore"]
-    E --> G["PasswordHasher.Verify"]
-    E -->|valid credentials| H["TokenGenerator"]
-    H --> I["InMemoryTokenStore.Add(simpleToken)"]
-    I --> J["TokenResponse(simpleToken)"]
+    Client["Клієнт"] --> Login["POST /auth/login"]
+    Login --> Signature1["ValidateApiSignatureFilter"]
+    Signature1 -->|valid| LoginAction["AuthController.Login"]
+    Signature1 -->|invalid / stale| AuthError["401 JSON error"]
+    LoginAction --> AuthLogin["AuthService.Login"]
+    AuthLogin --> Users["InMemoryUserStore"]
+    AuthLogin --> Hasher["PasswordHasher.Verify"]
+    AuthLogin -->|valid credentials| SimpleToken["Generate simpleToken"]
+    SimpleToken --> TokenStore1["InMemoryTokenStore.Add"]
+    TokenStore1 --> SimpleResponse["200 TokenResponse"]
 
-    A --> K["POST /auth/token"]
-    K --> L["ValidateApiSignatureFilter"]
-    L -->|ok| M["AuthController.Token"]
-    L -->|bad signature / stale request| X
-    M --> N["AuthService.ExchangeSimpleToken"]
-    N --> O["InMemoryTokenStore.TryConsumeSimpleToken"]
-    O -->|valid and not expired| P["TokenGenerator"]
-    P --> Q["InMemoryTokenStore.Add(fullToken)"]
-    Q --> R["TokenResponse(fullToken)"]
-    O -->|invalid / expired| Y["401 invalid_simple_token"]
+    Client --> Exchange["POST /auth/token"]
+    Exchange --> Signature2["ValidateApiSignatureFilter"]
+    Signature2 -->|valid| TokenAction["AuthController.Token"]
+    Signature2 -->|invalid / stale| AuthError
+    TokenAction --> ExchangeService["AuthService.ExchangeSimpleToken"]
+    ExchangeService --> Consume["InMemoryTokenStore.TryConsumeSimpleToken"]
+    Consume -->|valid and unused| FullToken["Generate fullToken"]
+    Consume -->|missing / expired / reused| SimpleError["401 invalid_simple_token"]
+    FullToken --> TokenStore2["InMemoryTokenStore.Add"]
+    TokenStore2 --> FullResponse["200 TokenResponse"]
 
-    A --> S["POST /auth/logout"]
-    S --> T["ValidateApiSignatureFilter"]
-    T -->|ok| U["AuthController.Logout"]
-    T -->|bad signature / stale request| X
-    U --> V["AuthService.Logout"]
-    V --> W["InMemoryTokenStore.TryRemoveFullToken"]
-    W -->|removed| Z["200 OK"]
-    W -->|not found / expired| AA["401 invalid_full_token"]
+    Client --> Logout["POST /auth/logout"]
+    Logout --> Signature3["ValidateApiSignatureFilter"]
+    Signature3 -->|valid| LogoutAction["AuthController.Logout"]
+    Signature3 -->|invalid / stale| AuthError
+    LogoutAction --> LogoutService["AuthService.Logout"]
+    LogoutService --> RemoveFull["InMemoryTokenStore.TryRemoveFullToken"]
+    RemoveFull -->|removed| Ok["200 OK"]
+    RemoveFull -->|missing / expired| FullError["401 invalid_full_token"]
 ```
 
-## 3. Послідовність для одного користувача
+## Послідовність login і token exchange
 
 ```mermaid
 sequenceDiagram
@@ -65,224 +46,91 @@ sequenceDiagram
     participant Filter as ValidateApiSignatureFilter
     participant Controller as AuthController
     participant Service as AuthService
-    participant Users as InMemoryUserStore
     participant Tokens as InMemoryTokenStore
 
-    Client->>Filter: POST /auth/login + login/password/signature/date
-    Filter->>Filter: Validate(signature, requestDate)
+    Client->>Filter: POST /auth/login + credentials + signature
+    Filter->>Filter: Validate(apiSignature, requestDate)
     alt Підпис або дата невалідні
         Filter-->>Client: 401 invalid_signature / stale_request
     else Запит валідний
-        Filter->>Controller: пропускає далі
+        Filter->>Controller: Pass request
         Controller->>Service: Login(login, password)
-        Service->>Users: TryGetByLogin(login)
-        Service->>Service: PasswordHasher.Verify(...)
-        alt Логін або пароль невірні
-            Service-->>Controller: null
-            Controller-->>Client: 401 invalid_credentials
-        else Дані правильні
-            Service->>Tokens: Add(simpleToken, expiresAt)
-            Service-->>Controller: TokenResponse(simpleToken)
-            Controller-->>Client: 200 simpleToken
-        end
+        Service->>Service: Verify password hash
+        Service->>Tokens: Add(simpleToken)
+        Service-->>Controller: TokenResponse(simpleToken)
+        Controller-->>Client: 200 OK
     end
 
-    Client->>Filter: POST /auth/token + simpleToken/signature/date
-    Filter->>Filter: Validate(signature, requestDate)
+    Client->>Filter: POST /auth/token + simpleToken + signature
+    Filter->>Filter: Validate(apiSignature, requestDate)
     alt Запит невалідний
         Filter-->>Client: 401 invalid_signature / stale_request
     else Запит валідний
-        Filter->>Controller: пропускає далі
+        Filter->>Controller: Pass request
         Controller->>Service: ExchangeSimpleToken(simpleToken)
         Service->>Tokens: TryConsumeSimpleToken(simpleToken)
-        alt Токен не знайдено / прострочений
+        alt Токен існує, не протермінований і ще не використаний
+            Service->>Tokens: Add(fullToken)
+            Service-->>Controller: TokenResponse(fullToken)
+            Controller-->>Client: 200 OK
+        else Токен невалідний
             Service-->>Controller: null
             Controller-->>Client: 401 invalid_simple_token
-        else Токен успішно "спожито"
-            Service->>Tokens: Add(fullToken, expiresAt)
-            Service-->>Controller: TokenResponse(fullToken)
-            Controller-->>Client: 200 fullToken
         end
     end
 ```
 
-## 4. Запуск застосунку
-
-```mermaid
-flowchart LR
-    A["Program.cs"] --> B["Зчитує appsettings.json"]
-    B --> C["Bind SecurityOptions"]
-    C --> D["ValidateOnStart"]
-    D --> E["Реєструє DI-сервіси"]
-    E --> F["Controllers"]
-    E --> G["InMemoryUserStore"]
-    E --> H["InMemoryTokenStore"]
-    E --> I["PasswordHasher"]
-    E --> J["TokenGenerator"]
-    E --> K["ApiSignatureValidator"]
-    E --> L["AuthService"]
-    E --> M["ExpiredTokenCleanupService"]
-    E --> N["Swagger only in Development"]
-    E --> O["ExceptionHandler + StatusCodePages"]
-    O --> P["MapControllers"]
-    P --> Q["HTTP API ready"]
-```
-
-## 5. Життєвий цикл токенів
+## Життєвий цикл токенів
 
 ```mermaid
 stateDiagram-v2
     [*] --> NoToken
     NoToken --> SimpleTokenIssued: /auth/login
     SimpleTokenIssued --> FullTokenIssued: /auth/token
-    SimpleTokenIssued --> Expired: TTL simpleToken минув
+    SimpleTokenIssued --> Expired: simpleToken TTL минув
     FullTokenIssued --> LoggedOut: /auth/logout
-    FullTokenIssued --> Expired: TTL fullToken минув
-    Expired --> Cleaned: ExpiredTokenCleanupService.RemoveExpired()
+    FullTokenIssued --> Expired: fullToken TTL минув
+    Expired --> Cleaned: ExpiredTokenCleanupService
     LoggedOut --> [*]
     Cleaned --> [*]
 ```
 
-## 6. Хто за що відповідає
+## Карта файлів
 
 ### Точка входу
 
-- `Program.cs`
-  Налаштовує весь застосунок: конфігурацію, DI, контролери, Swagger, глобальну обробку помилок і background service.
-
-### Конфігурація
-
-- `Config/SecurityOptions.cs`
-  Описує секцію `Security` з `appsettings.json`: статичний ключ, TTL токенів, freshness window, seed-користувачів.
-
-- `appsettings.json`
-  Містить demo-конфігурацію: `StaticKey`, час життя токенів, інтервал очищення і demo-користувача.
+- `src/SecureAuth/Program.cs` - конфігурація DI, controllers, Swagger, обробка помилок і запуск API.
 
 ### HTTP API
 
-- `Controllers/AuthController.cs`
-  Приймає HTTP-запити і повертає HTTP-відповіді. Сам майже не містить логіки.
+- `src/SecureAuth/Controllers/AuthController.cs` - тонкий контролер для `/auth/login`, `/auth/token`, `/auth/logout`.
+- `src/SecureAuth/Contracts/*` - DTO запитів, відповідей і єдиний формат помилок.
+- `src/SecureAuth/Filters/ValidateApiSignatureAttribute.cs` - підключає фільтр до контролера.
+- `src/SecureAuth/Filters/ValidateApiSignatureFilter.cs` - централізовано перевіряє підпис і freshness до бізнес-логіки.
 
-- `Contracts/LoginRequest.cs`
-  Тіло запиту для `/auth/login`.
+### Бізнес-логіка
 
-- `Contracts/TokenRequest.cs`
-  Тіло запиту для `/auth/token`.
+- `src/SecureAuth/Services/AuthService.cs` - координує login, обмін токена і logout.
+- `src/SecureAuth/Services/ApiSignatureValidator.cs` - перевіряє `SHA-256(StaticKey + requestDate)` і часове вікно.
+- `src/SecureAuth/Services/PasswordHasher.cs` - перевіряє PBKDF2-SHA256 hash пароля.
+- `src/SecureAuth/Services/TokenGenerator.cs` - генерує криптографічно стійкі opaque-токени.
 
-- `Contracts/LogoutRequest.cs`
-  Тіло запиту для `/auth/logout`.
+### Сховище
 
-- `Contracts/TokenResponse.cs`
-  Успішна відповідь з токеном і датою завершення.
+- `src/SecureAuth/Storage/InMemoryUserStore.cs` - завантажує demo-користувачів із конфігурації.
+- `src/SecureAuth/Storage/InMemoryTokenStore.cs` - thread-safe сховище simple/full токенів.
+- `src/SecureAuth/Background/ExpiredTokenCleanupService.cs` - періодично видаляє протерміновані токени.
 
-- `Contracts/ErrorResponse.cs`
-  Єдиний формат помилок API.
+### Конфігурація і тести
 
-- `Contracts/ISignedRequest.cs`
-  Спільний контракт для всіх запитів, які повинні містити `apiSignature` і `requestDate`.
+- `src/SecureAuth/appsettings.json` - demo `StaticKey`, TTL і seed-користувач.
+- `src/SecureAuth/SecureAuth.http` - ручні HTTP-приклади.
+- `test/SecureAuth.Tests/*` - unit та integration tests для ключових сценаріїв.
 
-### Захист запитів
+## Чому підпис винесений у filter
 
-- `Filters/ValidateApiSignatureAttribute.cs`
-  Фільтр, який запускається перед методами контролера.
-  Він витягує `ISignedRequest`, перевіряє підпис і блокує запит ще до бізнес-логіки.
+Підпис і freshness є транспортним захистом, а не частиною login-логіки. Тому `AuthController` і `AuthService` не дублюють перевірку в кожному методі: filter запускається перед action-методом і блокує невалідні запити ще до бізнес-логіки.
 
-- `Services/ApiSignatureValidator.cs`
-  Реально перевіряє:
-  - чи `apiSignature` дорівнює `SHA-256(StaticKey + requestDate)`
-  - чи `requestDate` достатньо близький до поточного UTC часу
+## Чому `simpleToken` одноразовий
 
-### Бізнес-логіка авторизації
-
-- `Services/AuthService.cs`
-  Центральний orchestration-сервіс:
-  - перевіряє логін/пароль
-  - створює `simpleToken`
-  - одноразово обмінює `simpleToken` на `fullToken`
-  - видаляє `fullToken` під час logout
-
-- `Services/PasswordHasher.cs`
-  Перевіряє пароль через PBKDF2-SHA256.
-  Хеш не генерує, а саме валідує введений пароль проти збереженого хешу.
-
-- `Services/TokenGenerator.cs`
-  Генерує випадкові opaque-токени через `RandomNumberGenerator`.
-
-### Сховища в пам'яті
-
-- `Storage/InMemoryUserStore.cs`
-  Завантажує користувачів з `Security:SeedUsers` у пам'ять і шукає їх по login.
-
-- `Storage/InMemoryTokenStore.cs`
-  Тримає `simpleToken` і `fullToken` у `ConcurrentDictionary`.
-  Уміє:
-  - додати токен
-  - одноразово спожити `simpleToken`
-  - видалити `fullToken`
-  - очистити прострочені токени
-
-### Моделі
-
-- `Models/UserRecord.cs`
-  Дані користувача в пам'яті.
-
-- `Models/StoredToken.cs`
-  Дані токена: значення, тип, expiry.
-
-- `Models/TokenKind.cs`
-  Розрізняє `Simple` і `Full`.
-
-### Фонові задачі
-
-- `Background/ExpiredTokenCleanupService.cs`
-  Раз на N хвилин проходиться по token store і видаляє прострочені токени.
-
-### Допоміжні файли
-
-- `SecureAuth.http`
-  Готові приклади ручного тестування endpoint-ів.
-
-- `Properties/launchSettings.json`
-  Локальні профілі запуску Visual Studio / `dotnet run`.
-
-## 7. Важливі технічні ідеї
-
-### Чому фільтр стоїть окремо
-
-Так автори відділили транспортний захист від бізнес-логіки.
-`AuthController` і `AuthService` не перевіряють `apiSignature` вручну в кожному методі, бо це робить фільтр один раз централізовано.
-
-### Чому `simpleToken` одноразовий
-
-`InMemoryTokenStore.TryConsumeSimpleToken(...)` не просто читає токен, а видаляє його.
-Тому один `simpleToken` не можна використати двічі.
-
-### Чому тут немає бази даних
-
-Усе зберігається в пам'яті:
-
-- користувачі завантажуються з конфігу при старті
-- токени живуть, поки живий процес
-
-Якщо перезапустити застосунок, усі видані токени зникнуть.
-
-## 8. Найкоротше пояснення "як воно працює"
-
-1. `Program.cs` збирає API й реєструє всі сервіси.
-2. Кожен запит на `/auth/*` спочатку проходить через `ValidateApiSignatureFilter`.
-3. `AuthController` лише приймає DTO і викликає `AuthService`.
-4. `AuthService` працює з користувачами, паролями й токенами.
-5. `InMemoryTokenStore` зберігає токени в пам'яті.
-6. `ExpiredTokenCleanupService` прибирає прострочені токени у фоні.
-
-## 9. Якщо дивитися код лише в 5 файлах
-
-Якщо ти хочеш зрозуміти проєкт максимально швидко, дивись у такому порядку:
-
-1. `Program.cs`
-2. `Controllers/AuthController.cs`
-3. `Filters/ValidateApiSignatureAttribute.cs`
-4. `Services/AuthService.cs`
-5. `Storage/InMemoryTokenStore.cs`
-
-Цього вже достатньо, щоб зрозуміти приблизно 90% поведінки програми.
+`simpleToken` існує тільки для короткого проміжного кроку. `InMemoryTokenStore.TryConsumeSimpleToken(...)` не просто читає його, а видаляє атомарно. Через це повторний обмін того самого simple token неможливий навіть при паралельних запитах.

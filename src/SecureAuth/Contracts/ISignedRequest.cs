@@ -2,7 +2,7 @@ namespace SecureAuth.Contracts;
 
 public interface ISignedRequest
 {
-    string ApiSignature { get; }
+    string? ApiSignature { get; }
 
-    long RequestDate { get; }
+    long? RequestDate { get; }
 }

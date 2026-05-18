@@ -6,11 +6,12 @@ public sealed class LogoutRequest : ISignedRequest
 {
     [Required]
     [MinLength(1)]
-    public required string FullToken { get; init; }
+    public string? FullToken { get; init; }
 
     [Required]
     [MinLength(1)]
-    public required string ApiSignature { get; init; }
+    public string? ApiSignature { get; init; }
 
-    public long RequestDate { get; init; }
+    [Required]
+    public long? RequestDate { get; init; }
 }

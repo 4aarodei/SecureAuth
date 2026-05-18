@@ -1,12 +1,13 @@
 @SecureAuth_HostAddress = http://localhost:5015
 @requestDate = replace-with-current-unix-timestamp-ms
-@apiSignature = replace-with-sha256-hex-of-dev-static-key-change-me-plus-requestDate
+@apiSignature = replace-with-sha256-hex-of-static-key-plus-requestDate
+@password = replace-with-local-password
 @simpleToken = replace-with-simple-token-from-login
 @fullToken = replace-with-full-token-from-token
 
 ### Demo credentials
 # login: demo
-# password: DemoPassword123!
+# password: use a local value matching Security:SeedUsers password hash; do not commit it.
 #
 # ApiSignature = SHA-256(StaticKey + requestDate), hex encoded.
 # StaticKey for local demo: dev-static-key-change-me
@@ -23,7 +24,7 @@ Content-Type: application/json
 
 {
   "login": "demo",
-  "password": "DemoPassword123!",
+  "password": "{{password}}",
   "apiSignature": "{{apiSignature}}",
   "requestDate": {{requestDate}}
 }

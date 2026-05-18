@@ -20,7 +20,13 @@ public sealed class ValidateApiSignatureFilter : IAsyncActionFilter
 
         if (signedRequest is null)
         {
-            context.Result = new UnauthorizedObjectResult(ErrorResponse.InvalidSignature());
+            context.Result = new BadRequestObjectResult(ErrorResponse.InvalidRequest());
+            return;
+        }
+
+        if (signedRequest.RequestDate is null && context.ModelState.ErrorCount > 0)
+        {
+            context.Result = new BadRequestObjectResult(ErrorResponse.InvalidRequest());
             return;
         }
 

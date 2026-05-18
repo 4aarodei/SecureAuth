@@ -24,14 +24,21 @@ public sealed class ExpiredTokenCleanupService : BackgroundService
     {
         using var timer = new PeriodicTimer(TimeSpan.FromMinutes(_options.CleanupIntervalMinutes));
 
-        while (await timer.WaitForNextTickAsync(stoppingToken))
+        try
         {
-            var removed = _tokenStore.RemoveExpired(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-
-            if (removed > 0)
+            while (await timer.WaitForNextTickAsync(stoppingToken))
             {
-                _logger.LogInformation("Removed {RemovedTokenCount} expired tokens.", removed);
+                var removed = _tokenStore.RemoveExpired(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+
+                if (removed > 0)
+                {
+                    _logger.LogInformation("Removed {RemovedTokenCount} expired tokens.", removed);
+                }
             }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            // Normal application shutdown.
         }
     }
 }

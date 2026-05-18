@@ -30,7 +30,7 @@ public sealed class AuthController : ControllerBase
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status401Unauthorized)]
     public ActionResult<TokenResponse> Login(LoginRequest request)
     {
-        var token = _authService.Login(request.Login, request.Password);
+        var token = _authService.Login(request.Login!, request.Password!);
 
         if (token is null)
         {
@@ -53,7 +53,7 @@ public sealed class AuthController : ControllerBase
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status401Unauthorized)]
     public ActionResult<TokenResponse> Token(TokenRequest request)
     {
-        var token = _authService.ExchangeSimpleToken(request.SimpleToken);
+        var token = _authService.ExchangeSimpleToken(request.SimpleToken!);
 
         if (token is null)
         {
@@ -76,7 +76,7 @@ public sealed class AuthController : ControllerBase
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status401Unauthorized)]
     public IActionResult Logout(LogoutRequest request)
     {
-        if (!_authService.Logout(request.FullToken))
+        if (!_authService.Logout(request.FullToken!))
         {
             return Unauthorized(ErrorResponse.InvalidFullToken());
         }

@@ -1,28 +1,71 @@
 # SecureAuth
 
-Невеликий ASP.NET Core API для тестового завдання: двофазна автентифікація з `ApiSignature`.
+Невеликий ASP.NET Core 8 API для тестового завдання: двоетапна автентифікація з підписом кожного запиту через `ApiSignature`.
 
-## Як працює автентифікація
+## Що реалізовано
 
-1. Клієнт викликає `POST /auth/login` з `login`, `password`, `apiSignature`, `requestDate`.
-2. Сервер спочатку перевіряє `ApiSignature` і freshness запиту. Бізнес-логіка не виконується, якщо підпис неправильний або timestamp застарілий.
-3. Якщо credentials правильні, сервер створює opaque `simpleToken` з TTL 5 хвилин.
-4. Клієнт викликає `POST /auth/token` з `simpleToken`, `apiSignature`, `requestDate`.
-5. Сервер знову спочатку перевіряє підпис і freshness, потім одноразово споживає `simpleToken`.
-6. Якщо все коректно, сервер створює opaque `fullToken` з TTL 24 години.
-7. `POST /auth/logout` перевіряє підпис і freshness, після цього видаляє `fullToken`.
+- `POST /auth/login` перевіряє логін і пароль, після чого видає короткоживучий `simpleToken`.
+- `POST /auth/token` одноразово обмінює `simpleToken` на довгоживучий `fullToken`.
+- `POST /auth/logout` видаляє активний `fullToken`.
+- Усі `/auth/*` запити спочатку проходять перевірку `ApiSignature` і `requestDate`.
+- Токени є opaque-рядками, не JWT.
+- Пароль demo-користувача зберігається як PBKDF2-SHA256 hash.
+- Сховище токенів є thread-safe і автоматично чистить протерміновані токени у background service.
+- Помилки повертаються в одному JSON-форматі.
 
-Токени генеруються через `RandomNumberGenerator`. JWT не використовується.
+## Запуск
+
+Потрібен .NET SDK 8.
+
+```powershell
+dotnet restore SecureAuth.slnx
+dotnet run --project src/SecureAuth/SecureAuth.csproj
+```
+
+Swagger у Development доступний після запуску за адресою з `launchSettings.json`, наприклад:
+
+```text
+http://localhost:5015/swagger
+```
+
+## Тести
+
+```powershell
+dotnet test SecureAuth.slnx
+```
+
+Тести покривають:
+
+- успішний login;
+- одноразове використання `simpleToken`;
+- logout для `fullToken`;
+- невалідний і застарілий `ApiSignature`;
+- конкурентне споживання токена;
+- валідацію security-конфігурації;
+- інтеграційні сценарії API.
+
+## Demo user
+
+Локальна конфігурація містить demo-користувача з PBKDF2-SHA256 hash у `Security:SeedUsers`.
+Plain text пароль не зберігається в репозиторії; для локальної перевірки використайте власний пароль і відповідний hash у локальній конфігурації або env-змінній.
+
+```text
+login: demo
+```
 
 ## ApiSignature
+
+Підпис обчислюється так:
 
 ```text
 ApiSignature = SHA-256(StaticKey + RequestDate)
 ```
 
-`StaticKey` береться з конфігурації `Security:StaticKey`.
-`RequestDate` - Unix timestamp у мілісекундах UTC.
-`ApiSignature` передається як hex-рядок SHA-256.
+Де:
+
+- `StaticKey` береться з `Security:StaticKey`;
+- `RequestDate` це Unix timestamp у мілісекундах UTC;
+- `ApiSignature` передається як hex-рядок SHA-256.
 
 PowerShell-приклад:
 
@@ -34,31 +77,23 @@ $apiSignature = [Convert]::ToHexString(
         [Text.Encoding]::UTF8.GetBytes($payload)
     )
 ).ToLowerInvariant()
+
+"requestDate=$requestDate"
+"apiSignature=$apiSignature"
 ```
 
-`requestDate` без freshness не захищає від replay-атак. Якщо зловмисник перехопить підписаний запит, він зможе повторити його пізніше з тим самим timestamp і підписом. Тому сервер відхиляє запити, час яких відрізняється від поточного UTC часу більше ніж на 5 хвилин.
+`requestDate` без перевірки freshness не захищає від replay-атак. Якщо зловмисник перехопить підписаний запит, він зможе повторити його пізніше з тим самим timestamp і підписом. Тому сервер відхиляє запити, час яких відрізняється від поточного UTC більше ніж на налаштоване вікно, за замовчуванням 5 хвилин.
 
-## Помилки
+## Endpoints
 
-Усі помилки повертаються в одному JSON-форматі:
-
-```json
-{
-  "error": "invalid_signature",
-  "message": "Request signature is invalid."
-}
-```
-
-## Endpoint-и
-
-У прикладах нижче `requestDate` потрібно замінити на поточний Unix timestamp у мілісекундах, а `apiSignature` - на SHA-256 від `StaticKey + requestDate`.
+У прикладах нижче `requestDate` треба замінити на поточний Unix timestamp у мілісекундах, а `apiSignature` - на SHA-256 від `StaticKey + requestDate`.
 
 ### POST /auth/login
 
 ```json
 {
   "login": "demo",
-  "password": "DemoPassword123!",
+  "password": "your-local-password",
   "apiSignature": "sha256-hex-of-static-key-plus-requestDate",
   "requestDate": 1779100000000
 }
@@ -104,11 +139,16 @@ $apiSignature = [Convert]::ToHexString(
 
 Успішна відповідь: `200 OK`.
 
-## Demo user
+## Формат помилок
 
-Локальна конфігурація містить користувача:
+```json
+{
+  "error": "invalid_signature",
+  "message": "Request signature is invalid."
+}
+```
 
-- login: `demo`
-- password: `DemoPassword123!`
+## Додаткова документація
 
-Пароль зберігається в `appsettings.json` тільки як PBKDF2-SHA256 hash.
+- [Технічне завдання](docs/TECH_TASK.md)
+- [Діаграми та карта файлів](docs/ArchitectureDiagrams.md)

@@ -8,6 +8,10 @@ using System.Reflection;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddDebug();
+
 builder.Services
     .Configure<SecurityOptions>(builder.Configuration.GetRequiredSection(SecurityOptions.SectionName))
     .AddOptionsWithValidateOnStart<SecurityOptions>()
@@ -28,7 +32,6 @@ builder.Services.AddSingleton<ApiSignatureValidator>();
 builder.Services.AddSingleton<AuthService>();
 builder.Services.AddHostedService<ExpiredTokenCleanupService>();
 
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {

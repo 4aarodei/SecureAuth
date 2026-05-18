@@ -10,15 +10,12 @@ namespace SecureAuth.Tests;
 
 public sealed class AuthServiceTests
 {
-    private const string DemoPassword = "DemoPassword123!";
-    private const string DemoPasswordHash = "pbkdf2-sha256:100000:U2VjdXJlQXV0aERlbW9TYWx0IQ==:xcasx8Cj6dYO5ghT/nPk266+Bj3JVNA72nlDzZLsPNQ=";
-
     [Fact]
     public void Login_ReturnsSimpleToken_ForValidCredentials()
     {
         var service = CreateAuthService();
 
-        var response = service.Login("demo", DemoPassword);
+        var response = service.Login("demo", TestCredentials.Password);
 
         Assert.NotNull(response);
         Assert.False(string.IsNullOrWhiteSpace(response.Token));
@@ -29,7 +26,7 @@ public sealed class AuthServiceTests
     public void ExchangeSimpleToken_ConsumesTokenAfterFirstUse()
     {
         var service = CreateAuthService();
-        var loginResponse = service.Login("demo", DemoPassword);
+        var loginResponse = service.Login("demo", TestCredentials.Password);
 
         Assert.NotNull(loginResponse);
 
@@ -66,7 +63,7 @@ public sealed class AuthServiceTests
                 new SeedUserOptions
                 {
                     Login = "demo",
-                    PasswordHash = DemoPasswordHash
+                    PasswordHash = TestCredentials.PasswordHash
                 }
             ]
         });
