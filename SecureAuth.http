@@ -1,0 +1,53 @@
+@SecureAuth_HostAddress = http://localhost:5015
+@requestDate = replace-with-current-unix-timestamp-ms
+@apiSignature = replace-with-sha256-hex-of-dev-static-key-change-me-plus-requestDate
+@simpleToken = replace-with-simple-token-from-login
+@fullToken = replace-with-full-token-from-token
+
+### Demo credentials
+# login: demo
+# password: DemoPassword123!
+#
+# ApiSignature = SHA-256(StaticKey + requestDate), hex encoded.
+# StaticKey for local demo: dev-static-key-change-me
+# requestDate must be current Unix timestamp in milliseconds.
+# PowerShell helper:
+# $d=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(); $s='dev-static-key-change-me'+$d; $h=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($s))).ToLowerInvariant(); "$d $h"
+#
+# requestDate without freshness does not protect from replay attacks:
+# an intercepted signed request could be sent again later if the server did not reject old timestamps.
+
+POST {{SecureAuth_HostAddress}}/auth/login
+Accept: application/json
+Content-Type: application/json
+
+{
+  "login": "demo",
+  "password": "DemoPassword123!",
+  "apiSignature": "{{apiSignature}}",
+  "requestDate": {{requestDate}}
+}
+
+###
+
+POST {{SecureAuth_HostAddress}}/auth/token
+Accept: application/json
+Content-Type: application/json
+
+{
+  "simpleToken": "{{simpleToken}}",
+  "apiSignature": "{{apiSignature}}",
+  "requestDate": {{requestDate}}
+}
+
+###
+
+POST {{SecureAuth_HostAddress}}/auth/logout
+Accept: application/json
+Content-Type: application/json
+
+{
+  "fullToken": "{{fullToken}}",
+  "apiSignature": "{{apiSignature}}",
+  "requestDate": {{requestDate}}
+}
