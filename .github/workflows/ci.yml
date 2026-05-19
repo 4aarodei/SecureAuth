@@ -21,10 +21,10 @@ jobs:
           dotnet-version: 8.0.x
 
       - name: Restore
-        run: dotnet restore SecureAuth.slnx
+        run: dotnet restore SecureAuth.sln
 
       - name: Build
-        run: dotnet build SecureAuth.slnx --configuration Release --no-restore
+        run: dotnet build SecureAuth.sln --configuration Release --no-restore
 
       - name: Test
-        run: dotnet test SecureAuth.slnx --configuration Release --no-build
+        run: dotnet test SecureAuth.sln --configuration Release --no-build

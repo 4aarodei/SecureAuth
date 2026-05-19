@@ -7,7 +7,7 @@
 
 ### Demo credentials
 # login: demo
-# password: use a local value matching Security:SeedUsers password hash; do not commit it.
+# password: use a local value matching Security:SeedUsers password hash; see README for hash generation.
 #
 # ApiSignature = SHA-256(StaticKey + requestDate), hex encoded.
 # StaticKey for local demo: dev-static-key-change-me
