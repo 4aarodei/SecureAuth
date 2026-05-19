@@ -18,12 +18,12 @@ public sealed class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Validates user credentials and issues a short-lived simple token.
+    /// Starts the auth flow: checks credentials and returns a short-lived simple token.
     /// </summary>
-    /// <param name="request">Login credentials together with request signature metadata.</param>
-    /// <response code="200">Simple token issued successfully.</response>
-    /// <response code="400">Request body is invalid.</response>
-    /// <response code="401">Credentials are invalid or request signature validation failed.</response>
+    /// <param name="request">Login, password and signature fields from the client.</param>
+    /// <response code="200">The login was accepted and a simple token was issued.</response>
+    /// <response code="400">The request body could not be read or is missing required data.</response>
+    /// <response code="401">Credentials or request signature are invalid.</response>
     [HttpPost("login")]
     [ProducesResponseType(typeof(TokenResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
@@ -41,17 +41,17 @@ public sealed class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Exchanges a simple token for a longer-lived full token.
+    /// Consumes a simple token and returns the full token used by the rest of the flow.
     /// </summary>
-    /// <param name="request">Simple token together with request signature metadata.</param>
-    /// <response code="200">Full token issued successfully.</response>
-    /// <response code="400">Request body is invalid.</response>
-    /// <response code="401">Simple token is invalid, expired, or request signature validation failed.</response>
+    /// <param name="request">Simple token and signature fields from the client.</param>
+    /// <response code="200">The simple token was valid and a full token was issued.</response>
+    /// <response code="400">The request body could not be read or is missing required data.</response>
+    /// <response code="401">The simple token or request signature is invalid.</response>
     [HttpPost("token")]
     [ProducesResponseType(typeof(TokenResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status401Unauthorized)]
-    public ActionResult<TokenResponse> Token(TokenRequest request)
+    public ActionResult<TokenResponse> ExchangeToken(TokenRequest request)
     {
         var token = _authService.ExchangeSimpleToken(request.SimpleToken!);
 
@@ -64,12 +64,12 @@ public sealed class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Invalidates an active full token.
+    /// Logs out by removing the current full token from the in-memory store.
     /// </summary>
-    /// <param name="request">Full token together with request signature metadata.</param>
-    /// <response code="200">Token removed successfully.</response>
-    /// <response code="400">Request body is invalid.</response>
-    /// <response code="401">Full token is invalid, expired, or request signature validation failed.</response>
+    /// <param name="request">Full token and signature fields from the client.</param>
+    /// <response code="200">The full token was removed.</response>
+    /// <response code="400">The request body could not be read or is missing required data.</response>
+    /// <response code="401">The full token or request signature is invalid.</response>
     [HttpPost("logout")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
